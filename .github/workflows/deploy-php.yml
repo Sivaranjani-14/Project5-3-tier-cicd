@@ -1,0 +1,48 @@
+name: Deploy PHP App to Elastic Beanstalk
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Create deployment package (ZIP)
+      - name: Create ZIP package
+        run: |
+          cd php-app
+          zip -r ../app.zip .
+
+      # 3. Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # 4. Upload ZIP to S3
+      - name: Upload to S3
+        run: |
+          aws s3 cp app.zip s3://${{ secrets.S3_BUCKET }}/app.zip
+
+      # 5. Create new Elastic Beanstalk version
+      - name: Create EB Application Version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name ${{ secrets.EB_APP_NAME }} \
+            --version-label v-${{ github.run_number }} \
+            --source-bundle S3Bucket=${{ secrets.S3_BUCKET }},S3Key=app.zip
+
+      # 6. Deploy to Elastic Beanstalk
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name ${{ secrets.EB_ENV_NAME }} \
+            --version-label v-${{ github.run_number }}
