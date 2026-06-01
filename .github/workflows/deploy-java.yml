@@ -1,8 +1,10 @@
-name: Build Java App
+name: Build & Deploy Java WAR to EC2 Tomcat
 
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - "java-app/**"
 
 jobs:
   build:
@@ -12,13 +14,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up JDK
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: "21"
 
-      - name: Build with Maven
+      - name: Build WAR
         run: |
           cd java-app
           mvn clean package
+
+      - name: Copy WAR to Bastion and EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "java-app/target/*.war"
+          target: "/home/ec2-user/"
+
+      - name: Deploy to Tomcat via Bastion
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            # copy WAR to Java EC2
+            scp -o StrictHostKeyChecking=no /home/ec2-user/java-app/target/*.war ec2-user@${{ secrets.JAVA_INSTANCE_IP }}:/tmp/
+
+            # deploy to tomcat
+            ssh ec2-user@${{ secrets.JAVA_INSTANCE_IP }} << 'EOF'
+              sudo mv /tmp/*.war /usr/share/tomcat/webapps/java-app.war
+              sudo systemctl restart tomcat
+            EOF
